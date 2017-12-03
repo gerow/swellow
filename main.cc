@@ -21,14 +21,39 @@ static const int kBacklog = 50;
 
 using std::string;
 
+class UniqueFd {
+public:
+  explicit UniqueFd(int fd) : fd_(fd) {}
+  operator int() const { return fd_; }
+  ~UniqueFd() { close(fd_); }
+
+private:
+  int fd_;
+
+  UniqueFd() = delete;
+  UniqueFd(const UniqueFd &) = delete;
+  UniqueFd &operator=(const UniqueFd &) = delete;
+};
+
 class Client {
 public:
   // takes ownerhip of fd
   explicit Client(int fd) : fd_(fd) {}
+  const string &Peek() const { return in_; }
+  string Read(size_t len) {
+    string out = in_.substr(0, len);
+    in_.erase(0, len);
+    return out;
+  }
+  void Write(const string &data) { out_.append(data); }
 
 private:
-  int fd_;
+  UniqueFd fd_;
   string in_, out_;
+
+  Client() = delete;
+  Client(const Client &) = delete;
+  Client &operator=(const Client &) = delete;
 };
 
 int main(int argc, char **argv) {
