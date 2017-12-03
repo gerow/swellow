@@ -1,2 +1,2 @@
-project('swellow', 'c')
-executable('swellow', 'main.c')
+project('swellow', 'cpp', default_options : ['cpp_std=c++14'])
+executable('swellow', 'main.cc')
