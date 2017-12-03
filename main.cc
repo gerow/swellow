@@ -5,7 +5,6 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
-#include <sstream>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +12,24 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <memory>
+#include <set>
+#include <sstream>
+
 static const char usage[] = "Usage: %s PORT\n";
 static const int kBacklog = 50;
 
 using std::string;
+
+class Client {
+public:
+  // takes ownerhip of fd
+  explicit Client(int fd) : fd_(fd) {}
+
+private:
+  int fd_;
+  string in_, out_;
+};
 
 int main(int argc, char **argv) {
   if (argc != 2) {
@@ -71,6 +84,7 @@ int main(int argc, char **argv) {
   }
   std::cerr << "listening on port " << port << std::endl;
 
+  std::set<std::unique_ptr<Client>> clients;
   for (;;) {
     struct sockaddr_storage addr = {};
     socklen_t addrlen = sizeof(addr);
@@ -88,10 +102,10 @@ int main(int argc, char **argv) {
     } else {
       std::cerr << "accepted new client with unknown host/service" << std::endl;
     }
-
-    if (close(cfd) == -1) {
-      perror("close");
+    auto ret = clients.insert(std::make_unique<Client>(cfd));
+    if (!ret.second) {
+      std::cerr << "found conflicting client, (how?)" << std::endl;
+      exit(EXIT_FAILURE);
     }
-    std::cerr << "closed client connection" << std::endl;
   }
 }
