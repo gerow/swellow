@@ -45,6 +45,7 @@ private:
 class Poll {
 public:
   virtual void Handle(struct epoll_event *event) = 0;
+  virtual ~Poll(){};
 };
 
 class Client {
