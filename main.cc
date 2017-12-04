@@ -48,16 +48,56 @@ public:
   virtual ~Poll(){};
 };
 
-class Client {
+class Client : public Poll {
 public:
   // takes ownerhip of fd
   explicit Client(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
+
+  void Register() {
+    struct epoll_event event = {};
+    event.events = EPOLLIN;
+    event.data.ptr = this;
+    if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event) == -1) {
+      perror("epoll_ctl");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  void Handle(struct epoll_event *event) override {
+    if (event->events & EPOLLIN) {
+      char buf[4096];
+      ssize_t len = read(fd_, buf, sizeof(buf));
+      std::cerr << "got read of " << len << " bytes" << std::endl;
+      if (len == -1) {
+        if (errno != EAGAIN) {
+          perror("read");
+          exit(EXIT_FAILURE);
+        }
+        return;
+      }
+      if (len == 0) {
+        std::cerr << "hup on fd " << fd_ << "; closing" << std::endl;
+        if (epoll_ctl(epfd_, EPOLL_CTL_DEL, fd_, nullptr) == -1) {
+          perror("epoll_ctl");
+          exit(EXIT_FAILURE);
+        }
+        // XXX(gerow): we did't close this or delete client, bad bad bad
+      } else {
+        in_.append(buf, len);
+        std::cerr << "in for fd " << fd_ << " is now" << std::endl
+                  << Peek() << std::endl;
+      }
+    }
+  }
+
   const string &Peek() const { return in_; }
+
   string Read(size_t len) {
     string out = in_.substr(0, len);
     in_.erase(0, len);
     return out;
   }
+
   void Write(const string &data) { out_.append(data); }
 
 private:
@@ -73,6 +113,7 @@ private:
 class Listener : public Poll {
 public:
   Listener(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
+
   void Register() {
     struct epoll_event event = {};
     event.events |= EPOLLIN;
@@ -94,7 +135,7 @@ public:
       socklen_t addrlen = sizeof(addr);
       int cfd = accept4(fd_, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
       if (cfd == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (errno == EAGAIN) {
           perror("accept4");
           break;
         }
@@ -111,7 +152,9 @@ public:
         std::cerr << "accepted new client with unknown host/service"
                   << std::endl;
       }
-      auto ret = clients_.insert(std::make_unique<Client>(cfd, epfd_));
+      auto client = std::make_unique<Client>(cfd, epfd_);
+      client->Register();
+      auto ret = clients_.insert(std::move(client));
       if (!ret.second) {
         std::cerr << "found conflicting client, (how?)" << std::endl;
         exit(EXIT_FAILURE);
