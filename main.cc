@@ -239,8 +239,8 @@ int main(int argc, char **argv) {
 
   auto listener = std::make_unique<Listener>(lfd, epfd);
   listener->Register();
+  struct epoll_event events[100] = {};
   for (;;) {
-    struct epoll_event events[100] = {};
     int numEvents = epoll_wait(epfd, events, N_ELEM(events), -1);
     if (numEvents == -1) {
       perror("epoll_wait");
