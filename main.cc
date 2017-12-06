@@ -14,8 +14,8 @@
 #include <unistd.h>
 
 #include <memory>
-#include <set>
 #include <sstream>
+#include <unordered_set>
 
 #define N_ELEM(__x) (sizeof(__x) / sizeof(__x[0]))
 
@@ -71,7 +71,7 @@ public:
       ssize_t len = read(fd_, buf, sizeof(buf));
       std::cerr << "got read of " << len << " bytes" << std::endl;
       if (len == -1) {
-        if (errno != EAGAIN) {
+        if (errno != EAGAIN && errno != EINTR) {
           perror("read");
           exit(EXIT_FAILURE);
         }
@@ -145,7 +145,7 @@ public:
       socklen_t addrlen = sizeof(addr);
       int cfd = accept4(fd_, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
       if (cfd == -1) {
-        if (errno == EAGAIN) {
+        if (errno == EAGAIN || errno == EINTR) {
           perror("accept4");
           break;
         }
@@ -175,7 +175,7 @@ public:
 private:
   UniqueFd fd_;
   int epfd_;
-  std::set<std::unique_ptr<Client>> clients_;
+  std::unordered_set<std::unique_ptr<Client>> clients_;
 
   Listener() = delete;
   Listener(const Listener &) = delete;
