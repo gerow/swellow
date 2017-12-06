@@ -45,7 +45,7 @@ private:
 class Poll {
 public:
   virtual void Handle(struct epoll_event *event) = 0;
-  virtual ~Poll(){};
+  virtual ~Poll() = default;
 };
 
 class Client : public Poll {
@@ -54,7 +54,9 @@ public:
   explicit Client(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
 
   void Register() {
-    struct epoll_event event = {};
+    struct epoll_event event = {
+        .events = EPOLLIN, .data = {.ptr = this},
+    };
     event.events = EPOLLIN;
     event.data.ptr = this;
     if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event) == -1) {
@@ -90,6 +92,14 @@ public:
     }
   }
 
+  const string PopRequest() {
+    size_t pos = in_.find("\r\n\r\n", 0);
+    if (pos == string::npos) {
+      return "";
+    }
+    return Read(pos + 4);
+  }
+
   const string &Peek() const { return in_; }
 
   string Read(size_t len) {
@@ -115,9 +125,9 @@ public:
   Listener(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
 
   void Register() {
-    struct epoll_event event = {};
-    event.events |= EPOLLIN;
-    event.data.ptr = this;
+    struct epoll_event event = {
+        .events = EPOLLIN, .data = {.ptr = this},
+    };
     if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event) == -1) {
       perror("epoll_ctl");
       exit(EXIT_FAILURE);
@@ -179,10 +189,11 @@ int main(int argc, char **argv) {
   }
   const char *port = argv[1];
 
-  struct addrinfo hints = {};
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_flags = AI_PASSIVE | AI_NUMERICSERV;
+  struct addrinfo hints = {
+      .ai_flags = AI_PASSIVE | AI_NUMERICSERV,
+      .ai_family = AF_UNSPEC,
+      .ai_socktype = SOCK_STREAM,
+  };
 
   struct addrinfo *result = nullptr;
   if (getaddrinfo(nullptr, port, &hints, &result) != 0) {
