@@ -1,7 +1,6 @@
 #include <alloca.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -13,6 +12,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <unordered_set>
@@ -25,7 +25,7 @@ static const int kBacklog = 50;
 using std::string;
 
 class UniqueFd {
-public:
+ public:
   explicit UniqueFd(int fd) : fd_(fd) {}
   operator int() const { return fd_; }
   ~UniqueFd() {
@@ -34,7 +34,7 @@ public:
     }
   }
 
-private:
+ private:
   int fd_;
 
   UniqueFd() = delete;
@@ -43,19 +43,20 @@ private:
 };
 
 class Poll {
-public:
+ public:
   virtual void Handle(struct epoll_event *event) = 0;
   virtual ~Poll() = default;
 };
 
 class Client : public Poll {
-public:
+ public:
   // takes ownerhip of fd
   explicit Client(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
 
   void Register() {
     struct epoll_event event = {
-        .events = EPOLLIN, .data = {.ptr = this},
+        .events = EPOLLIN,
+        .data = {.ptr = this},
     };
     event.events = EPOLLIN;
     event.data.ptr = this;
@@ -110,7 +111,7 @@ public:
 
   void Write(const string &data) { out_.append(data); }
 
-private:
+ private:
   UniqueFd fd_;
   int epfd_;
   string in_, out_;
@@ -121,12 +122,13 @@ private:
 };
 
 class Listener : public Poll {
-public:
+ public:
   Listener(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
 
   void Register() {
     struct epoll_event event = {
-        .events = EPOLLIN, .data = {.ptr = this},
+        .events = EPOLLIN,
+        .data = {.ptr = this},
     };
     if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event) == -1) {
       perror("epoll_ctl");
@@ -172,7 +174,7 @@ public:
     }
   }
 
-private:
+ private:
   UniqueFd fd_;
   int epfd_;
   std::unordered_set<std::unique_ptr<Client>> clients_;
@@ -205,8 +207,7 @@ int main(int argc, char **argv) {
   struct addrinfo *rp = nullptr;
   for (rp = result; rp != nullptr; rp = rp->ai_next) {
     lfd = socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (lfd == -1)
-      continue;
+    if (lfd == -1) continue;
     int reuseopt = 1;
     if (setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &reuseopt,
                    sizeof(reuseopt)) == -1) {
