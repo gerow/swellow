@@ -48,48 +48,92 @@ class Poll {
   virtual ~Poll() = default;
 };
 
+/*
+class Request {
+ public:
+  string method;
+  string path;
+
+  static std::unique_ptr<Request> Parse(const std::string_view in) {
+    size_t linePos = in.find("\r\n");
+    if (linePos == string::npos) return nullptr;
+    auto line = std::string_view(in.data(), linePos);
+
+
+  }
+};
+*/
+
 class Client : public Poll {
  public:
   // takes ownerhip of fd
-  explicit Client(int fd, int epfd) : fd_(fd), epfd_(epfd) {}
+  explicit Client(int fd, int epfd) : fd_(fd), epfd_(epfd) {
+    // can we construct this?
+    event_.data = {.ptr = this};
+  }
 
   void Register() {
-    struct epoll_event event = {
-        .events = EPOLLIN,
-        .data = {.ptr = this},
-    };
-    event.events = EPOLLIN;
-    event.data.ptr = this;
-    if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event) == -1) {
+    event_.events = EPOLLIN;
+    if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd_, &event_) == -1) {
       perror("epoll_ctl");
       exit(EXIT_FAILURE);
     }
   }
 
+  void handleRead() {
+    char buf[4096];
+    ssize_t len = read(fd_, buf, sizeof(buf));
+    std::cerr << "got read of " << len << " bytes" << std::endl;
+    if (len == -1) {
+      if (errno != EAGAIN && errno != EINTR) {
+        perror("read");
+        exit(EXIT_FAILURE);
+      }
+      return;
+    }
+    if (len == 0) {
+      std::cerr << "hup on fd " << fd_ << "; closing" << std::endl;
+      if (epoll_ctl(epfd_, EPOLL_CTL_DEL, fd_, nullptr) == -1) {
+        perror("epoll_ctl");
+        exit(EXIT_FAILURE);
+      }
+      // XXX(gerow): we did't close this or delete client, bad bad bad
+    } else {
+      in_.append(buf, len);
+      std::cerr << "in for fd " << fd_ << " is now" << std::endl
+                << Peek() << std::endl;
+      // just for testing, ignore request and just say what we want
+      this->PopRequest();
+      this->Write(
+          "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello world!\n");
+    }
+  }
+
+  void handleWrite() {
+    ssize_t len = write(fd_, out_.c_str(), out_.size());
+    std::cerr << "wrote " << len << " bytes" << std::endl;
+    if (len == -1) {
+      if (errno != EAGAIN && errno != EINTR) {
+        perror("write");
+        exit(EXIT_FAILURE);
+      }
+    }
+    out_.erase(0, len);
+    if (out_.size() == 0) {
+      event_.events &= ~EPOLLOUT;
+      if (epoll_ctl(epfd_, EPOLL_CTL_MOD, fd_, &event_) == -1) {
+        perror("epoll_ctl");
+        exit(EXIT_FAILURE);
+      }
+    }
+  }
+
   void Handle(struct epoll_event *event) override {
     if (event->events & EPOLLIN) {
-      char buf[4096];
-      ssize_t len = read(fd_, buf, sizeof(buf));
-      std::cerr << "got read of " << len << " bytes" << std::endl;
-      if (len == -1) {
-        if (errno != EAGAIN && errno != EINTR) {
-          perror("read");
-          exit(EXIT_FAILURE);
-        }
-        return;
-      }
-      if (len == 0) {
-        std::cerr << "hup on fd " << fd_ << "; closing" << std::endl;
-        if (epoll_ctl(epfd_, EPOLL_CTL_DEL, fd_, nullptr) == -1) {
-          perror("epoll_ctl");
-          exit(EXIT_FAILURE);
-        }
-        // XXX(gerow): we did't close this or delete client, bad bad bad
-      } else {
-        in_.append(buf, len);
-        std::cerr << "in for fd " << fd_ << " is now" << std::endl
-                  << Peek() << std::endl;
-      }
+      handleRead();
+    }
+    if (event->events & EPOLLOUT) {
+      handleWrite();
     }
   }
 
@@ -109,11 +153,25 @@ class Client : public Poll {
     return out;
   }
 
-  void Write(const string &data) { out_.append(data); }
+  void Write(const string &data) {
+    if (data.size() == 0) {
+      return;
+    }
+    out_.append(data);
+    if (!(event_.events & EPOLLOUT)) {
+      event_.events |= EPOLLOUT;
+      if (epoll_ctl(epfd_, EPOLL_CTL_MOD, fd_, &event_) == -1) {
+        perror("epoll_ctl");
+        exit(EXIT_FAILURE);
+      }
+    }
+  }
 
  private:
   UniqueFd fd_;
   int epfd_;
+  epoll_event event_;
+  // these would be better as ring buffers
   string in_, out_;
 
   Client() = delete;
